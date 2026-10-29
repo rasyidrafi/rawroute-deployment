@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .state/
 backups/
 __pycache__/

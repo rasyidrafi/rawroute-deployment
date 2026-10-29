@@ -39,6 +39,21 @@ class DeploymentTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 deploy.assert_single_writer("old")
 
+    def test_local_image_is_not_pulled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / ".state"
+            (state / "control").mkdir(parents=True)
+            (root / "backups").mkdir()
+            with patch.object(deploy, "ROOT", root), patch.object(deploy, "STATE", state), \
+                    patch.object(deploy, "compose", return_value="") as compose, \
+                    patch.object(deploy, "run", return_value="sha256:local") as run, \
+                    patch.object(deploy, "ready"), patch.object(deploy, "assert_single_writer"):
+                deploy.apply("app:sha-abcdef0", False, local_image=True)
+            run.assert_any_call(["docker", "image", "inspect", "app:sha-abcdef0"], capture=True)
+            pulls = [call.args for call in compose.call_args_list if call.args[1] == "pull"]
+            self.assertEqual(pulls, [("app:sha-abcdef0", "pull", "proxy")])
+
     def test_update_order_and_failure_keep_maintenance(self):
         for fail in [False, True]:
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:

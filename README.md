@@ -3,6 +3,26 @@
 Linux, Docker Engine, Docker Compose v2 with `up --wait`, and Python 3 are required.
 This is a standalone deployment repository. Nothing deploys on clone or test.
 
+## Local source and parallel deployment
+
+`python3 build.py` builds clean committed source from `../rawroute` and prints the
+immutable image and deployment command. Pass `--local-image` to `deploy.py` for
+these locally built images. Review compatibility before applying updates.
+
+To coexist with another deployment, set `RAWROUTE_SITE=:80`,
+`RAWROUTE_HTTP_PORT=8081`, `RAWROUTE_HTTPS_PORT=8443`, and
+`RAWROUTE_PUBLIC_URL=http://your-server:8081` in `.env`. The default remains HTTPS
+on ports 80/443. Host port 8443 is reserved but does not serve HTTPS in HTTP mode.
+Persist imported runtime overrides/secrets in private `.state/runtime.env`
+(raw Docker env-file format; requires Compose 2.30+). Explicit Compose environment
+values override that file. Keep it mode 0600 and `.state/` private.
+
+Parallel installations must use independent data volumes. Import the entire data
+volume only with the original writer stopped, then restart the original. Apply
+any required offline migrations only to the new copy before starting it.
+Credentials and data start identical; subsequent writes are independent.
+Keep the old deployment and its data until a deliberate final cutover.
+
 ## Setup (when ready)
 
 Point a public DNS hostname at the server and allow inbound TCP 80/443. Copy

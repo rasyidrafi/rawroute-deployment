@@ -63,7 +63,7 @@ def ready(image):
         raise RuntimeError("Application is not ready; maintenance remains enabled.")
 
 
-def apply(image, recover):
+def apply(image, recover, local_image=False):
     pending = STATE / "pending.json"
     maintenance = STATE / "control" / "maintenance"
     if recover:
@@ -85,7 +85,11 @@ def apply(image, recover):
         raise RuntimeError("Interrupted deployment found. Inspect .state/pending.json; recover before deploying again.")
     compose(image, "config", "--quiet")
     # Network/download time happens before maintenance and before stopping the writer.
-    compose(image, "pull", "rawroute", "proxy")
+    if local_image:
+        run(["docker", "image", "inspect", image], capture=True)
+        compose(image, "pull", "proxy")
+    else:
+        compose(image, "pull", "rawroute", "proxy")
     pinned = run(["docker", "image", "inspect", "--format", "{{.Id}}", image], capture=True)
     old = compose(image, "ps", "-aq", "rawroute", capture=True)
     if len(old.split()) > 1:
@@ -124,6 +128,7 @@ def main(argv=None):
     parser.add_argument("--schema-compatible", action="store_true",
                         help="Confirm no offline migration is needed and old/new images can use the same persisted data")
     parser.add_argument("--recover", action="store_true", help="Restart the previous image WITHOUT restoring data")
+    parser.add_argument("--local-image", action="store_true", help="Use an already-built local application image")
     args = parser.parse_args(argv)
     if args.recover and args.image:
         parser.error("--recover does not accept an image")
@@ -147,8 +152,8 @@ def main(argv=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("Another deployment holds the lock.") from None
-        apply(args.image, args.recover)
-    print("Application ready; maintenance disabled. Check the public HTTPS endpoint as well.")
+        apply(args.image, args.recover, local_image=args.local_image)
+    print("Application ready; maintenance disabled. Check the public endpoint as well.")
     return 0
 
 

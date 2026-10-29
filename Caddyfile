@@ -1,4 +1,4 @@
-{$RAWROUTE_HOST} {
+{$RAWROUTE_SITE} {
     @maintenance file {
         root /srv/control
         try_files maintenance
