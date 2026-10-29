@@ -1,0 +1,17 @@
+{$RAWROUTE_HOST} {
+    @maintenance file {
+        root /srv/control
+        try_files maintenance
+    }
+    handle @maintenance {
+        header Retry-After "30"
+        header Cache-Control "no-store"
+        respond "RawRoute is being updated. Please try again shortly." 503
+    }
+    handle {
+        reverse_proxy rawroute:8080 {
+            # Stream immediately. Do not retry AI requests during replacement.
+            flush_interval -1
+        }
+    }
+}

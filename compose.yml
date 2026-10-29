@@ -1,0 +1,51 @@
+name: rawroute-production
+
+services:
+  proxy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      RAWROUTE_HOST: ${RAWROUTE_HOST:?Set RAWROUTE_HOST in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./.state/control:/srv/control:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  rawroute:
+    image: ${RAWROUTE_IMAGE:?Use deploy.py with an immutable image}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "8080"
+      SQLITE_PATH: /data/rawroute.sqlite
+      RAWROUTE_DATA_DIR: /data
+      RAWROUTE_PUBLIC_URL: https://${RAWROUTE_HOST:?Set RAWROUTE_HOST in .env}
+      CLIPROXY_MODE: managed
+    volumes:
+      - app-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - >-
+          fetch('http://127.0.0.1:8080/api/health', {signal: AbortSignal.timeout(3000)})
+          .then(async r => {const j = await r.json(); process.exit(r.ok && j.status === 'ok' && j.service === 'rawroute' && j.dependencies?.database === true && j.dependencies?.cliproxy === true ? 0 : 1)})
+          .catch(() => process.exit(1))
+      interval: 2s
+      timeout: 5s
+      start_period: 10s
+      retries: 60
+
+volumes:
+  app-data:
+    external: true
+    name: rawroute-production-data
+  caddy-data:
+  caddy-config:
