@@ -1,3 +1,11 @@
+{
+    servers {
+        # Preserve HTTPS forwarding from local Cloudflare/Tailscale proxies.
+        trusted_proxies static private_ranges
+        trusted_proxies_strict
+    }
+}
+
 {$RAWROUTE_SITE} {
     @maintenance file {
         root /srv/control

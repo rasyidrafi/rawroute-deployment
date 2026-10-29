@@ -23,6 +23,12 @@ any required offline migrations only to the new copy before starting it.
 Credentials and data start identical; subsequent writes are independent.
 Keep the old deployment and its data until a deliberate final cutover.
 
+For an existing Cloudflare/Tailscale tunnel to `127.0.0.1:8080`, use HTTP mode
+(`RAWROUTE_SITE=:80`, `RAWROUTE_HTTP_PORT=8080`) and set `RAWROUTE_PUBLIC_URL`
+to the external HTTPS URL. Include both external origins in
+`RAWROUTE_ALLOWED_ORIGINS` in the private runtime env file. Caddy trusts forwarded
+headers from private-network proxies so external HTTPS sessions remain secure.
+
 ## Setup (when ready)
 
 Point a public DNS hostname at the server and allow inbound TCP 80/443. Copy
