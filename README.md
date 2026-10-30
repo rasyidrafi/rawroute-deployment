@@ -60,13 +60,16 @@ Initial login uses password `123456` and requires a password change.
 3. Keep the proxy running; gracefully stop the only app writer (60-second grace).
 4. Archive the entire stopped data volume into private `backups/`.
 5. Start the new app; require database and CLIProxy readiness, not just liveness.
-6. Reopen traffic only after readiness succeeds. On failure, leave maintenance on.
+6. Reopen traffic only after readiness succeeds. On failure, automatically attempt
+   to restart the previous image and reopen traffic after it becomes ready.
 
 Downloads/builds are outside downtime. Downtime includes drain, full backup, and
 startup; large data volumes increase it. Existing AI streams may finish during
 drain, but are not transferable and can be interrupted at the shutdown deadline.
 This is less downtime, NOT zero downtime. No parallel writers, rolling replicas,
-automatic database conversion, or destructive automatic rollback are used.
+automatic database conversion, or automatic data restoration are used. Recovery can
+fail (for example, if Docker, storage, or the host fails), and abrupt process termination
+can interrupt it; monitor the deployment until public service is confirmed.
 
 The fixed external volume is `rawroute-production-data`. The script creates it
 on first deploy. Existing installations must be deliberately moved/restored into
@@ -81,7 +84,9 @@ adapting its explicit deployment boundaries first.
 
 ## Recovery and migration releases
 
-If deployment fails, inspect `.state/pending.json`, container logs, and the backup.
+If automatic recovery fails, immediately inspect `.state/pending.json`, container logs,
+and the backup, and restore service. If the deployment process is killed or the host
+fails during maintenance, recovery must also be initiated manually.
 For a data-compatible release, explicitly restart the previous locally available
 image (does not restore data):
 

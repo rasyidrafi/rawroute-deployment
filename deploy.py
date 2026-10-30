@@ -102,23 +102,33 @@ def apply(image, recover, local_image=False):
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     backup = ROOT / "backups" / f"{timestamp}.tar"
     save(pending, {"previous": previous, "target": pinned, "backup": str(backup)})
-    maintenance.touch()
-    # Never recreate the proxy on an application update. Initial install starts it.
-    proxy = compose(pinned, "ps", "-q", "proxy", capture=True)
-    if not proxy:
-        compose(pinned, "up", "-d", "--no-deps", "--pull", "never", "proxy")
-    compose(pinned, "stop", "rawroute")
-    assert_single_writer()
-    # Snapshot the whole stopped volume: SQLite/WAL, secrets, engine state, storage key.
-    run(["docker", "run", "--rm", "--network", "none", "--user", "0:0",
-         "--mount", f"type=volume,src={VOLUME},dst=/source,readonly",
-         "--mount", f"type=bind,src={backup.parent},dst=/backup",
-         "--entrypoint", "/bin/sh", pinned, "-ec",
-         f"umask 077; tar -C /source -cf /backup/{backup.name} ."])
-    ready(pinned)
-    save(STATE / "active.json", {"image": pinned, "source": image, "backup": str(backup)})
-    maintenance.unlink(missing_ok=True)
-    pending.unlink()
+    try:
+        maintenance.touch()
+        # Never recreate the proxy on an application update. Initial install starts it.
+        proxy = compose(pinned, "ps", "-q", "proxy", capture=True)
+        if not proxy:
+            compose(pinned, "up", "-d", "--no-deps", "--pull", "never", "proxy")
+        compose(pinned, "stop", "rawroute")
+        assert_single_writer()
+        # Snapshot the whole stopped volume: SQLite/WAL, secrets, engine state, storage key.
+        run(["docker", "run", "--rm", "--network", "none", "--user", "0:0",
+             "--mount", f"type=volume,src={VOLUME},dst=/source,readonly",
+             "--mount", f"type=bind,src={backup.parent},dst=/backup",
+             "--entrypoint", "/bin/sh", pinned, "-ec",
+             f"umask 077; tar -C /source -cf /backup/{backup.name} ."])
+        ready(pinned)
+        save(STATE / "active.json", {"image": pinned, "source": image, "backup": str(backup)})
+        maintenance.unlink(missing_ok=True)
+        pending.unlink()
+    except (Exception, KeyboardInterrupt):
+        if previous:
+            print("Update failed; attempting to restore the previous image.", file=sys.stderr, flush=True)
+            try:
+                apply(None, True)
+                print("Previous image restored and ready; maintenance disabled.", file=sys.stderr, flush=True)
+            except (Exception, KeyboardInterrupt) as rollback_error:
+                print(f"Automatic recovery failed: {rollback_error}. Maintenance remains enabled; inspect .state/pending.json.", file=sys.stderr, flush=True)
+        raise
 
 
 def main(argv=None):
@@ -161,5 +171,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except (RuntimeError, subprocess.CalledProcessError, KeyboardInterrupt) as error:
-        print(f"Deployment interrupted: {error}. If maintenance is enabled, it stays enabled. Inspect .state/pending.json.", file=sys.stderr)
+        print(f"Deployment interrupted: {error}. Check application health and .state/pending.json.", file=sys.stderr)
         sys.exit(1)

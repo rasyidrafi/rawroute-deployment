@@ -54,7 +54,7 @@ class DeploymentTests(unittest.TestCase):
             pulls = [call.args for call in compose.call_args_list if call.args[1] == "pull"]
             self.assertEqual(pulls, [("app:sha-abcdef0", "pull", "proxy")])
 
-    def test_update_order_and_failure_keep_maintenance(self):
+    def test_update_order_and_automatic_recovery(self):
         for fail in [False, True]:
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -81,7 +81,7 @@ class DeploymentTests(unittest.TestCase):
                 def ready(image):
                     events.append("ready")
                     self.assertTrue((state / "control" / "maintenance").exists())
-                    if fail:
+                    if fail and image == "sha256:new":
                         raise RuntimeError("unhealthy")
 
                 with patch.object(deploy, "ROOT", root), patch.object(deploy, "STATE", state), \
@@ -97,10 +97,40 @@ class DeploymentTests(unittest.TestCase):
                 self.assertLess(events.index("pull"), events.index("stop"))
                 self.assertLess(events.index("stop"), events.index("backup"))
                 self.assertLess(events.index("backup"), events.index("ready"))
-                self.assertEqual((state / "pending.json").exists(), fail)
-                self.assertEqual((state / "control" / "maintenance").exists(), fail)
+                self.assertFalse((state / "pending.json").exists())
+                self.assertFalse((state / "control" / "maintenance").exists())
                 if fail:
-                    self.assertEqual(json.loads((state / "pending.json").read_text())["previous"], "sha256:old")
+                    self.assertEqual(events.count("ready"), 2)
+                    self.assertEqual(json.loads((state / "active.json").read_text())["image"], "sha256:old")
+
+    def test_failed_recovery_preserves_journal_and_maintenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / ".state"
+            (state / "control").mkdir(parents=True)
+            (root / "backups").mkdir()
+
+            def compose(image, *args, capture=False):
+                if args == ("ps", "-aq", "rawroute"):
+                    return "old"
+                if args == ("ps", "-q", "proxy"):
+                    return "proxy"
+
+            def run(args, **kwargs):
+                if args[:3] == ["docker", "image", "inspect"]:
+                    return "sha256:new"
+                if args[:2] == ["docker", "inspect"]:
+                    return "sha256:old"
+
+            with patch.object(deploy, "ROOT", root), patch.object(deploy, "STATE", state), \
+                    patch.object(deploy, "compose", side_effect=compose), \
+                    patch.object(deploy, "run", side_effect=run), \
+                    patch.object(deploy, "ready", side_effect=RuntimeError("unhealthy")), \
+                    patch.object(deploy, "assert_single_writer"):
+                with self.assertRaises(RuntimeError):
+                    deploy.apply("app:sha-abcdef0", False)
+            self.assertTrue((state / "pending.json").exists())
+            self.assertTrue((state / "control" / "maintenance").exists())
 
 
 if __name__ == "__main__":
