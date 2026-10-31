@@ -16,7 +16,7 @@ def main():
     subprocess.run(["docker", "build", "--build-arg", f"DEPLOYMENT_VERSION={revision}",
                     "-t", image, str(source)], check=True)
     print(f"Built {image}")
-    print(f"python3 deploy.py {image} --local-image --apply --schema-compatible")
+    print("This local image is for isolated development; deploy.py accepts published immutable tags or digests only.")
 
 
 if __name__ == "__main__":

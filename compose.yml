@@ -30,9 +30,12 @@ services:
       SQLITE_PATH: /data/rawroute.sqlite
       RAWROUTE_DATA_DIR: /data
       RAWROUTE_PUBLIC_URL: ${RAWROUTE_PUBLIC_URL:-https://${RAWROUTE_HOST:?Set RAWROUTE_HOST in .env}}
-      CLIPROXY_MODE: managed
+      STORAGE_ENABLED: "true"
+      STORAGE_S3_PORT: "9000"
     volumes:
       - app-data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
     healthcheck:
       test:
         - CMD
@@ -40,7 +43,7 @@ services:
         - -e
         - >-
           fetch('http://127.0.0.1:8080/api/health', {signal: AbortSignal.timeout(3000)})
-          .then(async r => {const j = await r.json(); process.exit(r.ok && j.status === 'ok' && j.service === 'rawroute' && j.dependencies?.database === true && j.dependencies?.cliproxy === true ? 0 : 1)})
+          .then(async r => {const j = await r.json(); const s = j.dependencies?.storage; process.exit(r.ok && j.status === 'ok' && j.service === 'rawroute' && j.dependencies?.database === true && s?.enabled === true && s?.listening === true ? 0 : 1)})
           .catch(() => process.exit(1))
       interval: 2s
       timeout: 5s

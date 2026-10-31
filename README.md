@@ -5,9 +5,9 @@ This is a standalone deployment repository. Nothing deploys on clone or test.
 
 ## Local source and parallel deployment
 
-`python3 build.py` builds clean committed source from `../rawroute` and prints the
-immutable image and deployment command. Pass `--local-image` to `deploy.py` for
-these locally built images. Review compatibility before applying updates.
+`python3 build.py` builds clean committed source from `../rawroute` for isolated
+development only. Production deployment requires a published immutable image;
+`deploy.py` does not deploy local builds.
 
 To coexist with another deployment, set `RAWROUTE_SITE=:80`,
 `RAWROUTE_HTTP_PORT=8081`, `RAWROUTE_HTTPS_PORT=8443`, and
@@ -42,10 +42,11 @@ Preview only (safe; no Docker commands or files written):
 python3 deploy.py docker.io/rasyidrafi/rawroute:sha-<full-commit>
 ```
 
-Deploy only after reviewing release/schema compatibility:
+This release is the stopped-writer Codex credential migration. Use the published
+immutable image only after CI and the image are ready:
 
 ```sh
-python3 deploy.py docker.io/rasyidrafi/rawroute:sha-<full-commit> --apply --schema-compatible
+python3 deploy.py docker.io/rasyidrafi/rawroute:sha-<full-commit> --apply
 ```
 
 Use an actual published commit tag or image digest, not the literal placeholder.
@@ -54,45 +55,60 @@ Initial login uses password `123456` and requires a password change.
 
 ## Deployment behavior
 
-1. Validate Compose and pull images while the old app remains available.
-2. Persist an interrupted-deployment journal and enable proxy maintenance (503,
-   Retry-After, no caching). No AI request retries or buffering are introduced.
-3. Keep the proxy running; gracefully stop the only app writer (60-second grace).
-4. Archive the entire stopped data volume into private `backups/`.
-5. Start the new app; require database and CLIProxy readiness, not just liveness.
-6. Reopen traffic only after readiness succeeds. On failure, automatically attempt
-   to restart the previous image and reopen traffic after it becomes ready.
+1. Pull and pin the candidate and previous images by local image ID; validate both
+   Compose configurations and the offline migration helper before downtime.
+2. Journal the previous image/config, enter Caddy maintenance (503,
+   Retry-After, no caching), and verify the ingress gate.
+3. Gracefully stop the only `/data` writer (60-second grace) and verify the
+   volume is idle. Create and verify a private, full-volume backup containing
+   SQLite/WAL, CLIProxy auth/config, and Storage state.
+4. Run the candidate Codex importer preview, apply with `--writers-stopped`,
+   and re-preview with network disabled and explicit legacy paths.
+5. Start the candidate with CLIProxy settings removed and Storage host publishing
+   disabled. Require database and internal Storage readiness, exact image/volume,
+   and verify port 9000 is not reachable on the host.
+6. Durably commit, then publish Storage only on `127.0.0.1:9000`, verify it, and
+   reopen Caddy only after readiness. Before commit, failures restore the matching
+   full-volume backup when data may have changed, then the prior image/config.
+   After Storage is published, recovery never restores stale data; it resumes the
+   committed candidate.
 
-Downloads/builds are outside downtime. Downtime includes drain, full backup, and
-startup; large data volumes increase it. Existing AI streams may finish during
-drain, but are not transferable and can be interrupted at the shutdown deadline.
-This is less downtime, NOT zero downtime. No parallel writers, rolling replicas,
-automatic database conversion, or automatic data restoration are used. Recovery can
-fail (for example, if Docker, storage, or the host fails), and abrupt process termination
-can interrupt it; monitor the deployment until public service is confirmed.
+Downloads and image validation are outside downtime. Downtime includes drain,
+full backup, offline migration, and candidate startup/readiness; large data
+volumes increase it. Existing AI streams may finish during drain, but are not
+transferable and can be interrupted at the shutdown deadline. This is less
+downtime, NOT zero downtime. No parallel writers or rolling replicas are used.
+Recovery can fail (for example, if Docker, storage, or the host fails), and abrupt
+process termination can interrupt it; monitor the deployment until public service
+is confirmed.
 
-The fixed external volume is `rawroute-production-data`. The script creates it
-on first deploy. Existing installations must be deliberately moved/restored into
-this volume with ALL writers stopped; this does not automatically adopt an old
-Compose volume. Never run two deployments against the same data. The script
-checks running Docker containers using this volume but cannot detect native
-processes, remote writers, or bind-mount aliases. Keep one deployment owner.
+This migration requires an existing `rawroute-production` application and the
+fixed external volume `rawroute-production-data`; it does not install a fresh
+deployment or adopt another Compose volume. Never run two deployments against the
+same data. The script checks running Docker containers using this volume but
+cannot detect native processes, remote writers, or bind-mount aliases. Keep one
+deployment owner.
 
-This stack is AI-only with a managed engine. Executor/Storage are not enabled.
-Do not use it to upgrade an installation requiring those features without
-adapting its explicit deployment boundaries first.
+Storage's S3 API listens over HTTP at `http://127.0.0.1:9000` on the host. It is
+loopback-only and is not covered by Caddy's HTTPS listener. Remote S3 clients
+need a separately configured TLS-terminating proxy that forwards to this local
+endpoint; never expose port 9000 directly. Storage creates its encryption key in
+the persistent data volume, which full-volume backups include. Preserve the
+matching key when restoring; saved Storage credentials cannot be recovered
+without it. Backups contain credentials; restrict access and encrypt off-host
+copies.
 
 ## Recovery and migration releases
 
 If automatic recovery fails, immediately inspect `.state/pending.json`, container logs,
 and the backup, and restore service. If the deployment process is killed or the host
 fails during maintenance, recovery must also be initiated manually.
-For a data-compatible release, explicitly restart the previous locally available
-image (does not restore data):
+If interrupted before the durable commit/Storage-publish boundary, recovery
+restores the matching old data, image, and configuration. After that boundary it
+resumes only the candidate and never restores the pre-migration snapshot:
 
 ```sh
-python3 deploy.py --recover
-python3 deploy.py --recover --apply --schema-compatible
+python3 deploy.py --recover --apply
 ```
 
 If the previous image was the cause of failure or is unavailable, repair manually;
@@ -100,12 +116,10 @@ do not repeatedly retry recovery blindly. First-install failures have no previou
 image and require manual repair. Retain `.state/`, local previous images, and backups.
 Do not prune images during an update/recovery or run `docker compose down -v`.
 
-For incompatible data/schema/engine upgrades, DO NOT pass `--schema-compatible`.
-Use the application release's stopped-writer migration procedure, full backup,
-and explicit recovery plan. Old-image rollback may require restoring the entire
-stopped volume and matching release together. This script deliberately does not
-restore/overwrite data or guess migration commands. Backups contain credentials:
-restrict access, encrypt off-host copies, test restoration, and manage retention.
+The script implements this Codex migration only; it does not infer compatibility,
+retain CLIProxy at runtime, or accept a compatibility bypass. Backups contain
+credentials: restrict access, encrypt off-host copies, test restoration, and
+manage retention. No existing image, backup, or data is pruned or deleted.
 
 The proxy is not recreated during normal updates. Updating Caddy/Caddyfile is a
 separate maintenance operation; validate configuration and use graceful reload.
