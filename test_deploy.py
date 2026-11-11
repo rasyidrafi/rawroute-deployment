@@ -391,8 +391,10 @@ class DeploymentTests(unittest.TestCase):
         )
         self.rollback_file = self.root / "compose.rollback.yml"
         self.rollback_file.write_text(
-            "services:\n  rawroute:\n    environment:\n      CLIPROXY_MODE: managed\n"
+            "services:\n  rawroute:\n    environment:\n"
             "      STORAGE_ENABLED: \"true\"\n      STORAGE_S3_PORT: \"9000\"\n"
+            "    healthcheck:\n      test:\n        - bun\n        - -e\n"
+            "        - >-\n          const s = j.dependencies?.storage\n"
             "    ports:\n      - \"127.0.0.1:9000:9000\"\n"
         )
         replacements = {
@@ -735,7 +737,8 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(self.docker.events.count("restore"), 1)
         self.assert_old_healthy_and_restored()
         self.assertEqual(OLD_REF, deploy.image_reference(OLD_ID, "rollback"))
-        self.assertIn("CLIPROXY_MODE: managed", self.rollback_file.read_text())
+        self.assertNotIn("CLIPROXY_MODE", self.rollback_file.read_text())
+        self.assertIn("dependencies?.storage", self.rollback_file.read_text())
         self.assertIn("STORAGE_ENABLED", self.rollback_file.read_text())
 
     def test_candidate_boot_failure_restores_snapshot_before_old_start(self):
@@ -1000,11 +1003,10 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn('"9000"', candidate)
         self.assertIn("dependencies?.storage", candidate)
         rollback = (source_root / "compose.rollback.yml").read_text()
-        self.assertIn("CLIPROXY_MODE: managed", rollback)
+        self.assertNotIn("CLIPROXY_MODE", rollback)
         self.assertIn("STORAGE_ENABLED", rollback)
         self.assertIn('"9000"', rollback)
-        self.assertIn("dependencies?.cliproxy", rollback)
-        self.assertNotIn("dependencies?.storage", rollback)
+        self.assertIn("dependencies?.storage", rollback)
 
     def test_effective_old_compose_mismatch_aborts_before_downtime(self):
         self.docker.hash_mismatch = True

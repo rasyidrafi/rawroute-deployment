@@ -38,7 +38,7 @@ PROXY_SERVICE = "proxy"
 PROXY_IMAGE = "caddy:2.10.2-alpine"
 HELPER_LABEL = "local.rawroute.deployment"
 HEALTH_SCRIPT = """const r=await fetch('http://127.0.0.1:8080/api/health',{signal:AbortSignal.timeout(3000)});const j=await r.json();const s=j.dependencies?.storage;process.exit(r.ok&&j.status==='ok'&&j.service==='rawroute'&&j.dependencies?.database===true&&s?.enabled===true&&s?.listening===true?0:1)"""
-OLD_HEALTH_SCRIPT = """const r=await fetch('http://127.0.0.1:8080/api/health',{signal:AbortSignal.timeout(3000)});const j=await r.json();const s=j.dependencies?.storage;process.exit(r.ok&&j.status==='ok'&&j.service==='rawroute'&&j.dependencies?.database===true&&j.dependencies?.cliproxy===true&&s?.enabled===true&&s?.listening===true?0:1)"""
+OLD_HEALTH_SCRIPT = """const r=await fetch('http://127.0.0.1:8080/api/health',{signal:AbortSignal.timeout(3000)});const j=await r.json();const s=j.dependencies?.storage;process.exit(r.ok&&j.status==='ok'&&j.service==='rawroute'&&j.dependencies?.database===true&&s?.enabled===true&&s?.listening===true?0:1)"""
 SNAPSHOT_TIMEOUT = 6 * 60 * 60
 IMPORT_TIMEOUT = 15 * 60
 
